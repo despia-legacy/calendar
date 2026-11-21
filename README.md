@@ -24,56 +24,93 @@ No Google Calendar cloud OAuth or server credential is included. Android reads c
 
 ## JavaScript SDK
 
-Install the SDK in your web app:
+Install the published SDK in your web app:
 
 ```sh
 npm install despia-native
 ```
 
-Copy `example/src/lib/despia-extension.js` to your app's `src/lib/` and adjust the import path if needed. It imports `despia` from `despia-native`, calls the SDK and returns the native answer's `data`. It checks native error envelopes and throws an error with their `code`. The SDK itself resolves native `ok: false` envelopes; it does not reject them. A single watched value becomes `undefined` after 30 seconds, which this helper reports as `sdk_timeout`.
+Import `despia` directly from `despia-native`. The examples use SDK 1.0.28. Run native calls from browser event handlers or mounted client hooks; importing the SDK during server rendering is safe. The installed Despia V3 app must include the approved extension.
 
-Each helper call forwards a unique native callback into a separate watched value, so overlapping calls do not share response globals. `onExtensionEvent` registers the declared native event callbacks and returns a cleanup function. Events are callbacks, not values you can poll from the SDK proxy.
-
-Importing the SDK is safe during server rendering. Run calls and event subscriptions only from browser click handlers or mounted client hooks. React and Vue can use the browser APIs used by this helper; in Next.js and other server-rendered apps, keep these calls in client code. The extension must be included in the installed Despia V3 app; a browser preview has no native extension features.
+Pass the route's exact output variable as the second argument. The SDK resolves an object whose matching property contains the full native envelope: `ok`, `code`, `error` and `data`, with runtime metadata. A native `ok: false` answer does not reject the SDK promise. Check `ok` before reading `data`. A single watched value becomes `undefined` after 30 seconds without an answer. Await calls using the same output variable sequentially.
 
 ## Call from the page
 
+Call `readCalendars` from a user action. A permission request can answer `pending` first; query again after the user answers the system prompt.
+
 ```javascript
-import { extensionCall, onExtensionEvent } from './lib/despia-extension.js';
-const calendar = (route, params) => extensionCall('calendar', route, params);
-const stopPermissions = onExtensionEvent('onCalendarPermission', state => console.log(state));
-const stopChanges = onExtensionEvent('onCalendarChanged', change => console.log(change));
+import despia from 'despia-native';
 
 export async function readCalendars() {
-  const permission = await calendar('permissions', { request: true, access: 'full' });
-  if (permission.pending || permission.events !== 'full') return;
-  return calendar('calendars');
+  const permissionReply = await despia(
+    'extension://calendar/permissions?request=true&access=full',
+    ['calendarPermissionsResult']
+  );
+  const permission = permissionReply.calendarPermissionsResult;
+  if (!permission?.ok) throw new Error(permission?.error ?? 'No native answer');
+  if (permission.data.pending || permission.data.events !== 'full') return;
+
+  const calendarsReply = await despia(
+    'extension://calendar/calendars', ['calendarCalendarsResult']
+  );
+  const calendars = calendarsReply.calendarCalendarsResult;
+  if (!calendars?.ok) throw new Error(calendars?.error ?? 'No native answer');
+  return calendars.data;
 }
-export const saveEvent = calendarId => calendar('event_save', { data: {
-  calendar_id: calendarId, title: 'Example appointment',
-  start_ms: Date.now() + 3600000, end_ms: Date.now() + 7200000,
-  timezone: 'Europe/Paris', alarms: [{ minutes: 15 }]
-}});
-// A permission request may answer pending first. Read again after its permission event.
-// On unmount: stopPermissions(); stopChanges();
+
+export async function saveEvent(calendarId) {
+  const appointment = {
+    calendar_id: calendarId, title: 'Example appointment',
+    start_ms: Date.now() + 3600000, end_ms: Date.now() + 7200000,
+    timezone: 'Europe/Paris', alarms: [{ minutes: 15 }]
+  };
+  const savedReply = await despia(
+    `extension://calendar/event_save?data=${encodeURIComponent(JSON.stringify(appointment))}`,
+    ['calendarEventSaveResult']
+  );
+  const saved = savedReply.calendarEventSaveResult;
+  if (!saved?.ok) throw new Error(saved?.error ?? 'No native answer');
+  return saved.data;
+}
 ```
 
-The helper waits for each answer and returns its data. Native permission and editor updates use the declared event callbacks. IDs are opaque strings, not portable identifiers between platforms or accounts. Dates use Unix milliseconds. The route's data parameter is a JSON object encoded into a string of at most 4096 characters.
+Optional native events call `globalThis.onCalendarPermission`, `globalThis.onCalendarChanged` and `globalThis.onCalendarEditor` with their payloads. For example, register the permission handler in mounted client code before requesting access:
+
+```js
+const previousCalendarHandler = globalThis.onCalendarPermission;
+const handleCalendarEvent = payload => {
+  if (typeof previousCalendarHandler === 'function') previousCalendarHandler(payload);
+  console.log(payload);
+};
+globalThis.onCalendarPermission = handleCalendarEvent;
+
+export function cleanupCalendarEvents() {
+  if (globalThis.onCalendarPermission === handleCalendarEvent) {
+    globalThis.onCalendarPermission = previousCalendarHandler;
+  }
+}
+```
+
+Call `cleanupCalendarEvents` when the client component unmounts. It restores the previous callback only while this component still owns the callback.
+
+The SDK's property proxy reads values; assigning a function on `despia` does not register a native event handler.
+
+IDs are opaque strings, not portable identifiers between platforms or accounts. Dates use Unix milliseconds. A route's `data` parameter is a JSON object encoded into a string of at most 4096 characters.
 
 ## Shared routes
 
-| Route | Parameters | Successful data |
-| --- | --- | --- |
-| capabilities | None | Provider and supported feature booleans |
-| permissions | Optional request boolean, access full, write_only or reminders | Current permission state. A request is acknowledged promptly, then permission event reports the answer. |
-| calendars | Optional entity events or reminders, default events | Calendar rows with common id, title and writable fields. Android also returns raw provider fields under android. Reminders entity is iOS only. |
-| calendar_save | data object with title, optional id; optional entity | Saved calendar id and native metadata where available. New iOS calendars may need source_id. New Android calendars use a local account. |
-| calendar_delete | id, optional entity | deleted: true |
-| events | start_ms and end_ms required; optional calendar_id, offset, limit 1..100 | Event occurrences, next_offset, has_more |
-| event_get | id | Event fields, with platform metadata |
-| event_save | data object; optional span this or future | id, saved: true |
-| event_delete | id; optional span | deleted: true for supported operations |
-| present | Optional id, data and mode view, edit or create | presented: true, which does not mean saved |
+| Route | Parameters | Successful data | SDK output variable |
+| --- | --- | --- | --- |
+| capabilities | None | Provider and supported feature booleans | `calendarCapabilitiesResult` |
+| permissions | Optional request boolean, access full, write_only or reminders | Current permission state. A request is acknowledged promptly, then permission event reports the answer. | `calendarPermissionsResult` |
+| calendars | Optional entity events or reminders, default events | Calendar rows with common id, title and writable fields. Android also returns raw provider fields under android. Reminders entity is iOS only. | `calendarCalendarsResult` |
+| calendar_save | data object with title, optional id; optional entity | Saved calendar id and native metadata where available. New iOS calendars may need source_id. New Android calendars use a local account. | `calendarCalendarSaveResult` |
+| calendar_delete | id, optional entity | deleted: true | `calendarCalendarDeleteResult` |
+| events | start_ms and end_ms required; optional calendar_id, offset, limit 1..100 | Event occurrences, next_offset, has_more | `calendarEventsResult` |
+| event_get | id | Event fields, with platform metadata | `calendarEventGetResult` |
+| event_save | data object; optional span this or future | id, saved: true | `calendarEventSaveResult` |
+| event_delete | id; optional span | deleted: true for supported operations | `calendarEventDeleteResult` |
+| present | Optional id, data and mode view, edit or create | presented: true, which does not mean saved | `calendarPresentResult` |
 
 Event data supports id, calendar_id, title, start_ms, end_ms, all_day, timezone, location, notes and alarms. iOS also supports url. New Android events require calendar_id. An update preserves fields not supplied. EventKit requires a writable calendar. Android providers enforce their account and calendar rules.
 
@@ -84,6 +121,14 @@ Recurrence writes use an array of objects with frequency 0 daily, 1 weekly, 2 mo
 EventKit supports this-event and future-event mutations. Android future-series splitting and recurring-series deletion need explicit provider operations through android_table. The shared delete route returns unsupported rather than silently deleting a recurring series. This extension does not implement an atomic Android series-split helper. Use native code when the operation needs a transaction spanning multiple provider rows.
 
 ## Platform methods and native UI
+
+| Route | SDK output variable |
+| --- | --- |
+| `ios_sources` | `calendarIosSourcesResult` |
+| `ios_reminders` | `calendarIosRemindersResult` |
+| `ios_reminder_save` | `calendarIosReminderSaveResult` |
+| `ios_reminder_delete` | `calendarIosReminderDeleteResult` |
+| `android_table` | `calendarAndroidTableResult` |
 
 - ios_sources lists EventKit sources after event or reminders access is granted.
 - ios_reminders lists reminder records, optionally filtered by calendar_id and completed, with offset/limit pagination.
