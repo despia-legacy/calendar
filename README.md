@@ -1,6 +1,6 @@
 # Calendar
 
-Source preview for Despia V3. This snapshot requires the runtime update currently awaiting release and an approved extension-enabled native build. Uploading these files does not change an installed app.
+Source preview for Despia V3. The runtime update and automatic discovery rollout are awaiting release. Rebuild and install the native app to include these files; uploading them does not change an installed app.
 
 A Despia V3 extension over iOS EventKit and the Android Calendar Provider. Shared routes cover event and calendar reads, writes, recurrence, alarms, permission state and native editor presentation. Named platform routes expose iOS Reminders and Android provider tables when there is no shared operation.
 
@@ -12,13 +12,15 @@ Source preview. Requires the upcoming V3 runtime and calendar permission configu
 
 Use the Despia SDK with React, Vue, Svelte, Next.js, TanStack or HTML5. Projects built with Lovable, Base44, Replit and other app builders need custom JavaScript and static file hosting. Claude Code, Codex and Cursor can edit the same extension files.
 
-## Install in an approved extension build
+## Install
 
 1. Copy manifest.json, ios/ and android/ to public/despia/calendar/ in your web app.
 2. Add calendar to public/despia/extensions.json. The prepared minimal index is `{ "extensions": ["calendar"] }`; use it only after the no-app-identity runtime reaches your build. Existing matching legacy identity blocks remain compatible. Do not add manifest_version to the index.
-3. Supply the five purpose descriptions listed in `ios.app.requires.usage_descriptions`. With the runtime update under review, the approved manifest can provide these strings under `ios.app.info_plist` with `ios.app.custom_keys: true`. Write descriptions that explain your own app. Existing nonempty app-configured descriptions take priority. This path does not require a new backend permission setting.
-4. Send calendar.policy.json with the approval request. It declares the Android READ_CALENDAR and WRITE_CALENDAR permission additions. These declarations are separate from the user's runtime consent. The policy file is not served from your site.
-5. Approve the source and rebuild through the extension-enabled path, then install that artifact.
+3. Supply the five purpose descriptions listed in `ios.app.requires.usage_descriptions`. With the runtime update under review, the verified manifest can provide these strings under `ios.app.info_plist` with `ios.app.custom_keys: true`. Write descriptions that explain your own app. Existing nonempty app-configured descriptions take priority. This path does not require a new backend permission setting.
+4. Keep calendar.policy.json as build verification metadata. It declares the Android READ_CALENDAR and WRITE_CALENDAR permission additions. These declarations are separate from the user's runtime consent. The policy file is not served from your site.
+5. Rebuild and install the native app with this extension.
+
+Signed build verification binds source hashes, dependency pins, app identity and final artifacts. It is separate from human code review and does not require a per-app enrollment switch.
 
 No Google Calendar cloud OAuth or server credential is included. Android reads calendars on the device, which may be synced by installed Google, Exchange or other account providers. iOS reads the calendars EventKit exposes. Neither OS guarantees that every cloud calendar or remote sharing feature is available through its device API.
 
@@ -30,7 +32,7 @@ Install the published SDK in your web app:
 npm install despia-native
 ```
 
-Import `despia` directly from `despia-native`. The examples use SDK 1.0.28. Run native calls from browser event handlers or mounted client hooks; importing the SDK during server rendering is safe. The installed Despia V3 app must include the approved extension.
+Import `despia` directly from `despia-native`. The examples use SDK 1.0.28. Run native calls from browser event handlers or mounted client hooks; importing the SDK during server rendering is safe. The installed Despia V3 app must include the compiled extension.
 
 Pass the route's exact output variable as the second argument. The SDK resolves an object whose matching property contains the full native envelope: `ok`, `code`, `error` and `data`, with runtime metadata. A native `ok: false` answer does not reject the SDK promise. Check `ok` before reading `data`. A single watched value becomes `undefined` after 30 seconds without an answer. Await calls using the same output variable sequentially.
 
