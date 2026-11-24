@@ -1,5 +1,5 @@
 {
-  "version": "1.0.0",
+  "version": "1.1.0",
   "bridge": {
     "routes": [
       {
@@ -123,6 +123,11 @@
               "this",
               "future"
             ]
+          },
+          "occurrence_ms": {
+            "type": "int",
+            "min": 0,
+            "max": 9007199254740991
           }
         }
       },
@@ -140,6 +145,11 @@
               "this",
               "future"
             ]
+          },
+          "occurrence_ms": {
+            "type": "int",
+            "min": 0,
+            "max": 9007199254740991
           }
         }
       },
